@@ -31,6 +31,7 @@ from litellm.llms.base_llm.base_utils import BaseLLMModelInfo, BaseTokenCounter
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.types.llms.anthropic import (
     ANTHROPIC_HOSTED_TOOLS,
+    ANTHROPIC_MID_CONVERSATION_OUTPUT_CONFIG_BETA_HEADER,
     ANTHROPIC_OAUTH_BETA_HEADER,
     ANTHROPIC_OAUTH_TOKEN_PREFIX,
     AllAnthropicToolsValues,
@@ -325,6 +326,16 @@ class AnthropicModelInfo(BaseLLMModelInfo):
         """
         file_ids: Final = get_file_ids_from_messages(messages)
         return len(file_ids) > 0
+
+    def is_mid_output_config_effort_used(self, messages: list[AllMessageValues]) -> bool:
+        """
+        Return if "output_config.effort" is in a message
+        """
+        for message in messages:
+            output_config = message.get("output_config")
+            if isinstance(output_config, dict) and "effort" in output_config:
+                return True
+        return False
 
     def is_mcp_server_used(self, mcp_servers: list[AnthropicMcpServerTool] | None) -> bool:
         if mcp_servers is None:
@@ -848,6 +859,7 @@ class AnthropicModelInfo(BaseLLMModelInfo):
         computer_tool_used: str | None = None,
         prompt_caching_set: bool = False,
         file_id_used: bool = False,
+        is_mid_output_config_effort_used: bool = False,
         mcp_server_used: bool = False,
         *,
         custom_llm_provider: str,
@@ -883,6 +895,9 @@ class AnthropicModelInfo(BaseLLMModelInfo):
         if mcp_server_used:
             betas.append("mcp-client-2025-04-04")
 
+        if is_mid_output_config_effort_used:
+            betas.append(ANTHROPIC_MID_CONVERSATION_OUTPUT_CONFIG_BETA_HEADER)
+
         return list(set(betas))
 
     @staticmethod
@@ -915,6 +930,7 @@ class AnthropicModelInfo(BaseLLMModelInfo):
         container_with_skills_used: bool = False,
         api_base: str | None = None,
         use_bearer_for_custom_base: bool = False,
+        is_mid_output_config_effort_used: bool = False,
     ) -> dict:
         betas: Final = set()
         # Anthropic no longer requires the prompt-caching beta header
@@ -949,6 +965,9 @@ class AnthropicModelInfo(BaseLLMModelInfo):
         # Container with skills uses a separate beta header
         if container_with_skills_used:
             betas.add("skills-2025-10-02")
+
+        if is_mid_output_config_effort_used:
+            betas.add(ANTHROPIC_MID_CONVERSATION_OUTPUT_CONFIG_BETA_HEADER)
 
         _is_oauth: Final = api_key and api_key.startswith(ANTHROPIC_OAUTH_TOKEN_PREFIX)
         headers: Final = {
@@ -1015,6 +1034,7 @@ class AnthropicModelInfo(BaseLLMModelInfo):
         mcp_server_used: Final = self.is_mcp_server_used(mcp_servers=optional_params.get("mcp_servers"))
         pdf_used: Final = self.is_pdf_used(messages=messages)
         file_id_used: Final = self.is_file_id_used(messages=messages)
+        is_mid_output_config_effort_used: Final = self.is_mid_output_config_effort_used(messages=messages)
         web_search_tool_used: Final = self.is_web_search_tool_used(tools=tools)
         tool_search_used: Final = self.is_tool_search_used(tools=tools)
         programmatic_tool_calling_used: Final = self.is_programmatic_tool_calling_used(tools=tools)
@@ -1032,6 +1052,7 @@ class AnthropicModelInfo(BaseLLMModelInfo):
             api_key=api_key,
             auth_token=auth_token,
             file_id_used=file_id_used,
+            is_mid_output_config_effort_used=is_mid_output_config_effort_used,
             web_search_tool_used=web_search_tool_used,
             is_vertex_request=optional_params.get("is_vertex_request", False),
             user_anthropic_beta_headers=user_anthropic_beta_headers,
