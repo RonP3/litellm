@@ -9354,3 +9354,32 @@ async def test_admission_and_budget_reservation_read_the_key_spend_counter_with_
     ], "admission and reservation share one snapshot, and read-then-write callers go to Redis once it closes"
     assert redis.async_batch_get_cache.await_count == 1
     assert "spend:key:hashed" in redis.async_batch_get_cache.await_args.kwargs["key_list"]
+
+
+@pytest.mark.asyncio
+async def test_virtual_key_cannot_enter_checks_as_an_identity_managed_actor(monkeypatch: pytest.MonkeyPatch) -> None:
+    from typing import Final
+    from litellm.proxy import proxy_server
+    from litellm.proxy.auth import user_api_key_auth as auth_module
+    from litellm.types.agents import AgentResponse
+    from litellm.types.proxy.agent_identity import AgentIdentityBinding
+
+    target: Final = AgentResponse(
+        agent_id="bound", agent_name="Bound", agent_card_params={}, identity_managed=True,
+        identity=AgentIdentityBinding(
+            agent_id="bound", provider="microsoft_entra", tenant_id="tenant", client_id="client", issuer="issuer", revision="current"
+        ),
+    )
+    client: Final = MagicMock()
+    client.writer_db.litellm_agentstable.find_unique = AsyncMock(return_value=target)
+    monkeypatch.setattr(proxy_server, "prisma_client", client)
+    checks: Final = AsyncMock()
+    monkeypatch.setattr(auth_module, "_run_centralized_common_checks", checks)
+    monkeypatch.setattr(proxy_server, "proxy_logging_obj", MagicMock(post_call_failure_hook=AsyncMock(return_value=None)))
+    data: Final = {"model": "allowed", "messages": [{"role": "user", "content": "hello"}]}
+    request: Final = _alias_request("/v1/chat/completions", data)
+    with pytest.raises(ProxyException):
+        await auth_module._authorize_authenticated_request(
+            UserAPIKeyAuth(agent_id="bound"), request, data, "/v1/chat/completions", "sk-test"
+        )
+    checks.assert_not_awaited()
